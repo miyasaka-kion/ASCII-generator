@@ -6,6 +6,7 @@ import argparse
 import cv2
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw, ImageOps
+from tqdm import tqdm
 
 
 def get_args():
@@ -28,19 +29,30 @@ def main(opt):
     if opt.mode == "simple":
         CHAR_LIST = '@%#*+=-:. '
     else:
-        CHAR_LIST = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
+        CHAR_LIST = r"$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
     if opt.background == "white":
         bg_code = 255
     else:
         bg_code = 0
     font = ImageFont.truetype("fonts/DejaVuSansMono-Bold.ttf", size=int(10 * opt.scale))
+
     cap = cv2.VideoCapture(opt.input)
+    if not cap.isOpened():
+        raise ValueError(f"Error opening video file: {opt.input}")
+    video_length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if video_length <= 0:
+        raise ValueError(f"Invalid video length: {video_length} frames")
+
     if opt.fps == 0:
         fps = int(cap.get(cv2.CAP_PROP_FPS))
+        print(f"FPS: {fps}")
     else:
         fps = opt.fps
     num_chars = len(CHAR_LIST)
     num_cols = opt.num_cols
+    progress_bar = tqdm(total=video_length, desc="Processing frames", unit="frame")
+
+    
     while cap.isOpened():
         flag, frame = cap.read()
         if flag:
@@ -57,7 +69,9 @@ def main(opt):
             cell_height = 12
             num_cols = int(width / cell_width)
             num_rows = int(height / cell_height)
-        char_width, char_height = font.getsize("A")
+        char_bbox = font.getbbox("A")
+        char_width = char_bbox[2] - char_bbox[0]
+        char_height = char_bbox[3]
         out_width = char_width * num_cols
         out_height = 2 * char_height * num_rows
         out_image = Image.new("L", (out_width, out_height), bg_code)
@@ -73,13 +87,14 @@ def main(opt):
             cropped_image = ImageOps.invert(out_image).getbbox()
         else:
             cropped_image = out_image.getbbox()
-        out_image = out_image.crop(cropped_image)
+
+        # out_image = out_image.crop(cropped_image)
         out_image = cv2.cvtColor(np.array(out_image), cv2.COLOR_GRAY2BGR)
         out_image = np.array(out_image)
         try:
             out
         except:
-            out = cv2.VideoWriter(opt.output, cv2.VideoWriter_fourcc(*"XVID"), fps,
+            out = cv2.VideoWriter(opt.output, cv2.VideoWriter_fourcc(*"mp4v"), fps,
                                   ((out_image.shape[1], out_image.shape[0])))
 
         if opt.overlay_ratio:
@@ -87,6 +102,10 @@ def main(opt):
             overlay = cv2.resize(frame, (int(width * opt.overlay_ratio), int(height * opt.overlay_ratio)))
             out_image[height - int(height * opt.overlay_ratio):, width - int(width * opt.overlay_ratio):, :] = overlay
         out.write(out_image)
+
+        progress_bar.update(1)
+
+    progress_bar.close()
     cap.release()
     out.release()
 
