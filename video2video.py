@@ -52,13 +52,14 @@ def main(opt):
     num_cols = opt.num_cols
     progress_bar = tqdm(total=video_length, desc="Processing frames", unit="frame")
 
-    
+    crop_bbox = None
+    out = None 
     while cap.isOpened():
         flag, frame = cap.read()
-        if flag:
-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        else:
+        if not flag: 
             break
+
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         height, width = image.shape
         cell_width = width / opt.num_cols
         cell_height = 2 * cell_width
@@ -69,12 +70,16 @@ def main(opt):
             cell_height = 12
             num_cols = int(width / cell_width)
             num_rows = int(height / cell_height)
+
         char_bbox = font.getbbox("A")
         char_width = char_bbox[2] - char_bbox[0]
         char_height = char_bbox[3]
         out_width = char_width * num_cols
         out_height = 2 * char_height * num_rows
+        # print(f"Output size: {out_width}x{out_height}")
         out_image = Image.new("L", (out_width, out_height), bg_code)
+
+        
         draw = ImageDraw.Draw(out_image)
         for i in range(num_rows):
             line = "".join([CHAR_LIST[min(int(np.mean(
@@ -83,31 +88,28 @@ def main(opt):
                             range(num_cols)]) + "\n"
             draw.text((0, i * char_height), line, fill=255 - bg_code, font=font)
 
-        if opt.background == "white":
-            cropped_image = ImageOps.invert(out_image).getbbox()
-        else:
-            cropped_image = out_image.getbbox()
+        if crop_bbox is None:
+            if opt.background == "white":
+                crop_bbox = ImageOps.invert(out_image).getbbox()
+            else:
+                crop_bbox = out_image.getbbox()
 
-        # out_image = out_image.crop(cropped_image)
+        out_image = out_image.crop(crop_bbox)
         out_image = cv2.cvtColor(np.array(out_image), cv2.COLOR_GRAY2BGR)
         out_image = np.array(out_image)
-        try:
-            out
-        except:
-            out = cv2.VideoWriter(opt.output, cv2.VideoWriter_fourcc(*"mp4v"), fps,
-                                  ((out_image.shape[1], out_image.shape[0])))
+        if out is None:
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            out = cv2.VideoWriter(opt.output, fourcc, fps, 
+                                (out_image.shape[1], out_image.shape[0]))
 
-        if opt.overlay_ratio:
-            height, width, _ = out_image.shape
-            overlay = cv2.resize(frame, (int(width * opt.overlay_ratio), int(height * opt.overlay_ratio)))
-            out_image[height - int(height * opt.overlay_ratio):, width - int(width * opt.overlay_ratio):, :] = overlay
         out.write(out_image)
 
         progress_bar.update(1)
 
     progress_bar.close()
     cap.release()
-    out.release()
+    if out:
+        out.release()
 
 
 if __name__ == '__main__':
